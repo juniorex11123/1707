@@ -247,7 +247,7 @@ export const employeeSummaryAPI = {
     if (month) params.append('month', month);
     if (year) params.append('year', year);
     
-    const response = await api.get(`/employee-summary?${params}`);
+    const response = await api.get(`/api/employee-summary?${params}`);
     setCachedData(cacheKey, response.data);
     return response.data;
   },
@@ -257,7 +257,7 @@ export const employeeSummaryAPI = {
     const cached = getCachedData(cacheKey);
     if (cached) return cached;
 
-    const response = await api.get(`/employee-months/${employeeId}`);
+    const response = await api.get(`/api/employee-months/${employeeId}`);
     setCachedData(cacheKey, response.data);
     return response.data;
   },
@@ -267,7 +267,7 @@ export const employeeSummaryAPI = {
     const cached = getCachedData(cacheKey);
     if (cached) return cached;
 
-    const response = await api.get(`/employee-days/${employeeId}/${yearMonth}`);
+    const response = await api.get(`/api/employee-days/${employeeId}/${yearMonth}`);
     setCachedData(cacheKey, response.data);
     return response.data;
   },
