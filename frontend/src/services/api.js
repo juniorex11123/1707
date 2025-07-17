@@ -144,31 +144,31 @@ export const employeesAPI = {
     const cached = getCachedData(cacheKey);
     if (cached) return cached;
 
-    const response = await api.get('/employees');
+    const response = await api.get('/api/employees');
     setCachedData(cacheKey, response.data);
     return response.data;
   },
   
   create: async (employee) => {
-    const response = await api.post('/employees', employee);
+    const response = await api.post('/api/employees', employee);
     apiCache.delete('employees_all');
     return response.data;
   },
   
   update: async (id, employee) => {
-    const response = await api.put(`/employees/${id}`, employee);
+    const response = await api.put(`/api/employees/${id}`, employee);
     apiCache.delete('employees_all');
     return response.data;
   },
   
   delete: async (id) => {
-    const response = await api.delete(`/employees/${id}`);
+    const response = await api.delete(`/api/employees/${id}`);
     apiCache.delete('employees_all');
     return response.data;
   },
   
   generateQR: async (id) => {
-    const response = await api.get(`/employees/${id}/qr`);
+    const response = await api.get(`/api/employees/${id}/qr`);
     return response.data;
   },
   
@@ -177,7 +177,7 @@ export const employeesAPI = {
       console.log('Downloading PDF for employee:', employeeName, 'ID:', id);
       console.log('API URL:', API_BASE_URL);
       
-      const response = await api.get(`/employees/${id}/qr-pdf`, {
+      const response = await api.get(`/api/employees/${id}/qr-pdf`, {
         responseType: 'blob'
       });
       
