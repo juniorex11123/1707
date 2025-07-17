@@ -2,11 +2,10 @@ import axios from 'axios';
 
 // Get backend URL from environment
 const API_BASE_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
-const API_URL = `${API_BASE_URL}/api`;
 
 // Create axios instance
 const api = axios.create({
-  baseURL: API_URL,
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -41,11 +40,11 @@ api.interceptors.response.use(
   }
 );
 
-// Auth API - UŻYJ PRAWDZIWEGO BACKEND API
+// Auth API - CGI endpoints
 export const authAPI = {
   login: async (username, password) => {
     try {
-      const response = await api.post('/auth/login', { username, password });
+      const response = await api.post('/login.py3', { username, password });
       return response.data;
     } catch (error) {
       // Re-throw error for proper handling in LoginPage
@@ -80,27 +79,27 @@ export const companiesAPI = {
     const cached = getCachedData(cacheKey);
     if (cached) return cached;
 
-    const response = await api.get('/companies');
+    const response = await api.get('/companies.py3');
     setCachedData(cacheKey, response.data);
     return response.data;
   },
   
   create: async (company) => {
-    const response = await api.post('/companies', company);
+    const response = await api.post('/companies.py3', company);
     // Wyczyść cache po dodaniu nowej firmy
     apiCache.delete('companies_all');
     return response.data;
   },
   
   update: async (id, company) => {
-    const response = await api.put(`/companies/${id}`, company);
+    const response = await api.put(`/companies.py3?id=${id}`, company);
     // Wyczyść cache po aktualizacji
     apiCache.delete('companies_all');
     return response.data;
   },
   
   delete: async (id) => {
-    const response = await api.delete(`/companies/${id}`);
+    const response = await api.delete(`/companies.py3?id=${id}`);
     // Wyczyść cache po usunięciu
     apiCache.delete('companies_all');
     return response.data;
@@ -114,25 +113,25 @@ export const usersAPI = {
     const cached = getCachedData(cacheKey);
     if (cached) return cached;
 
-    const response = await api.get('/users');
+    const response = await api.get('/users.py3');
     setCachedData(cacheKey, response.data);
     return response.data;
   },
   
   create: async (user) => {
-    const response = await api.post('/users', user);
+    const response = await api.post('/users.py3', user);
     apiCache.delete('users_all');
     return response.data;
   },
   
   update: async (id, user) => {
-    const response = await api.put(`/users/${id}`, user);
+    const response = await api.put(`/users.py3?id=${id}`, user);
     apiCache.delete('users_all');
     return response.data;
   },
   
   delete: async (id) => {
-    const response = await api.delete(`/users/${id}`);
+    const response = await api.delete(`/users.py3?id=${id}`);
     apiCache.delete('users_all');
     return response.data;
   },
@@ -145,40 +144,40 @@ export const employeesAPI = {
     const cached = getCachedData(cacheKey);
     if (cached) return cached;
 
-    const response = await api.get('/employees');
+    const response = await api.get('/employees.py3');
     setCachedData(cacheKey, response.data);
     return response.data;
   },
   
   create: async (employee) => {
-    const response = await api.post('/employees', employee);
+    const response = await api.post('/employees.py3', employee);
     apiCache.delete('employees_all');
     return response.data;
   },
   
   update: async (id, employee) => {
-    const response = await api.put(`/employees/${id}`, employee);
+    const response = await api.put(`/employees.py3?id=${id}`, employee);
     apiCache.delete('employees_all');
     return response.data;
   },
   
   delete: async (id) => {
-    const response = await api.delete(`/employees/${id}`);
+    const response = await api.delete(`/employees.py3?id=${id}`);
     apiCache.delete('employees_all');
     return response.data;
   },
   
   generateQR: async (id) => {
-    const response = await api.get(`/employees/${id}/qr`);
+    const response = await api.get(`/qr_generate.py3?employee_id=${id}`);
     return response.data;
   },
   
   downloadQRPDF: async (id, employeeName) => {
     try {
       console.log('Downloading PDF for employee:', employeeName, 'ID:', id);
-      console.log('API URL:', API_URL);
+      console.log('API URL:', API_BASE_URL);
       
-      const response = await api.get(`/employees/${id}/qr-pdf`, {
+      const response = await api.get(`/qr_generate.py3?employee_id=${id}&format=pdf`, {
         responseType: 'blob'
       });
       
@@ -213,25 +212,25 @@ export const timeEntriesAPI = {
     const cached = getCachedData(cacheKey);
     if (cached) return cached;
 
-    const response = await api.get('/time-entries');
+    const response = await api.get('/time_entries.py3');
     setCachedData(cacheKey, response.data);
     return response.data;
   },
   
   create: async (timeEntry) => {
-    const response = await api.post('/time-entries', timeEntry);
+    const response = await api.post('/time_entries.py3', timeEntry);
     apiCache.delete('time_entries_all');
     return response.data;
   },
   
   update: async (id, timeEntry) => {
-    const response = await api.put(`/time-entries/${id}`, timeEntry);
+    const response = await api.put(`/time_entries.py3?id=${id}`, timeEntry);
     apiCache.delete('time_entries_all');
     return response.data;
   },
   
   delete: async (id) => {
-    const response = await api.delete(`/time-entries/${id}`);
+    const response = await api.delete(`/time_entries.py3?id=${id}`);
     apiCache.delete('time_entries_all');
     return response.data;
   },
@@ -248,7 +247,7 @@ export const employeeSummaryAPI = {
     if (month) params.append('month', month);
     if (year) params.append('year', year);
     
-    const response = await api.get(`/employee-summary?${params}`);
+    const response = await api.get(`/employee_summary.py3?${params}`);
     setCachedData(cacheKey, response.data);
     return response.data;
   },
@@ -258,7 +257,7 @@ export const employeeSummaryAPI = {
     const cached = getCachedData(cacheKey);
     if (cached) return cached;
 
-    const response = await api.get(`/employee-months/${employeeId}`);
+    const response = await api.get(`/employee_months.py3?employee_id=${employeeId}`);
     setCachedData(cacheKey, response.data);
     return response.data;
   },
@@ -268,7 +267,7 @@ export const employeeSummaryAPI = {
     const cached = getCachedData(cacheKey);
     if (cached) return cached;
 
-    const response = await api.get(`/employee-days/${employeeId}/${yearMonth}`);
+    const response = await api.get(`/employee_days.py3?employee_id=${employeeId}&year_month=${yearMonth}`);
     setCachedData(cacheKey, response.data);
     return response.data;
   },
@@ -277,7 +276,7 @@ export const employeeSummaryAPI = {
 // QR Scan API
 export const qrScanAPI = {
   processScan: async (qrCode, userId) => {
-    const response = await api.post('/qr-scan', { qr_code: qrCode, user_id: userId });
+    const response = await api.post('/qr_scan.py3', { qr_code: qrCode, user_id: userId });
     // Wyczyść cache po skanowaniu QR
     apiCache.delete('time_entries_all');
     return response.data;
