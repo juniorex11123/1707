@@ -113,25 +113,25 @@ export const usersAPI = {
     const cached = getCachedData(cacheKey);
     if (cached) return cached;
 
-    const response = await api.get('/users');
+    const response = await api.get('/api/users');
     setCachedData(cacheKey, response.data);
     return response.data;
   },
   
   create: async (user) => {
-    const response = await api.post('/users', user);
+    const response = await api.post('/api/users', user);
     apiCache.delete('users_all');
     return response.data;
   },
   
   update: async (id, user) => {
-    const response = await api.put(`/users/${id}`, user);
+    const response = await api.put(`/api/users/${id}`, user);
     apiCache.delete('users_all');
     return response.data;
   },
   
   delete: async (id) => {
-    const response = await api.delete(`/users/${id}`);
+    const response = await api.delete(`/api/users/${id}`);
     apiCache.delete('users_all');
     return response.data;
   },
