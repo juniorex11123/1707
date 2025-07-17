@@ -79,27 +79,27 @@ export const companiesAPI = {
     const cached = getCachedData(cacheKey);
     if (cached) return cached;
 
-    const response = await api.get('/companies');
+    const response = await api.get('/api/companies');
     setCachedData(cacheKey, response.data);
     return response.data;
   },
   
   create: async (company) => {
-    const response = await api.post('/companies', company);
+    const response = await api.post('/api/companies', company);
     // Wyczyść cache po dodaniu nowej firmy
     apiCache.delete('companies_all');
     return response.data;
   },
   
   update: async (id, company) => {
-    const response = await api.put(`/companies/${id}`, company);
+    const response = await api.put(`/api/companies/${id}`, company);
     // Wyczyść cache po aktualizacji
     apiCache.delete('companies_all');
     return response.data;
   },
   
   delete: async (id) => {
-    const response = await api.delete(`/companies/${id}`);
+    const response = await api.delete(`/api/companies/${id}`);
     // Wyczyść cache po usunięciu
     apiCache.delete('companies_all');
     return response.data;
