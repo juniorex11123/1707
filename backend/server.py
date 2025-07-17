@@ -2,6 +2,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
@@ -19,13 +20,15 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.utils import ImageReader
 from fastapi.responses import Response
+import asyncio
+from functools import lru_cache
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
+# MongoDB connection z poolem połączeń
 mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
+client = AsyncIOMotorClient(mongo_url, maxPoolSize=20, minPoolSize=5)
 db = client[os.environ['DB_NAME']]
 
 # JWT Configuration
@@ -37,10 +40,46 @@ JWT_EXPIRATION_HOURS = 24
 security = HTTPBearer()
 
 # Create the main app without a prefix
-app = FastAPI(title="TimeTracker Pro API", version="1.0.0")
+app = FastAPI(
+    title="TimeTracker Pro API", 
+    version="1.0.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc"
+)
+
+# Dodaj GZip middleware dla kompresji
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
+
+# === CACHE SYSTEM === 
+# Cache w pamięci dla częstych zapytań
+from functools import wraps
+import time
+
+cache = {}
+CACHE_DURATION = 300  # 5 minut
+
+def cached(duration=CACHE_DURATION):
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            # Tworzenie klucza cache
+            cache_key = f"{func.__name__}:{str(args)}:{str(kwargs)}"
+            
+            # Sprawdź czy dane są w cache
+            if cache_key in cache:
+                data, timestamp = cache[cache_key]
+                if time.time() - timestamp < duration:
+                    return data
+            
+            # Wykonaj funkcję i zapisz w cache
+            result = await func(*args, **kwargs)
+            cache[cache_key] = (result, time.time())
+            return result
+        return wrapper
+    return decorator
 
 # === MODELS ===
 
@@ -155,8 +194,9 @@ class QRScanResponse(BaseModel):
 
 # === UTILITY FUNCTIONS ===
 
+@lru_cache(maxsize=128)
 def hash_password(password: str) -> str:
-    """Hash a password"""
+    """Hash a password z cache"""
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def verify_password(password: str, password_hash: str) -> bool:
@@ -181,8 +221,9 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
     except jwt.JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+@cached(duration=1800)  # 30 minut cache
 async def get_current_user(token_payload: dict = Depends(verify_token)) -> dict:
-    """Get current user from token"""
+    """Get current user from token z cache"""
     user_id = token_payload.get("user_id")
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token")
@@ -193,8 +234,9 @@ async def get_current_user(token_payload: dict = Depends(verify_token)) -> dict:
     
     return user
 
+@lru_cache(maxsize=64)
 def generate_qr_code(data: str) -> str:
-    """Generate QR code and return base64 encoded image"""
+    """Generate QR code and return base64 encoded image z cache"""
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
     qr.add_data(data)
     qr.make(fit=True)
@@ -310,7 +352,7 @@ async def init_default_data():
 
 @api_router.post("/auth/login", response_model=LoginResponse)
 async def login(request: LoginRequest):
-    """User login"""
+    """User login - zoptymalizowany"""
     user = await db.users.find_one({"username": request.username})
     if not user or not verify_password(request.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -344,8 +386,9 @@ async def login(request: LoginRequest):
 # === COMPANY ROUTES ===
 
 @api_router.get("/companies", response_model=List[Company])
+@cached(duration=300)  # 5 minut cache
 async def get_companies(current_user: dict = Depends(get_current_user)):
-    """Get all companies (owner only)"""
+    """Get all companies (owner only) z cache"""
     if current_user["type"] != "owner":
         raise HTTPException(status_code=403, detail="Access denied")
     
@@ -360,6 +403,10 @@ async def create_company(company: CompanyCreate, current_user: dict = Depends(ge
     
     company_obj = Company(**company.dict())
     await db.companies.insert_one(company_obj.dict())
+    
+    # Clear cache
+    cache.clear()
+    
     return company_obj
 
 @api_router.put("/companies/{company_id}", response_model=Company)
@@ -376,6 +423,9 @@ async def update_company(company_id: str, company: CompanyUpdate, current_user: 
     if update_data:
         await db.companies.update_one({"id": company_id}, {"$set": update_data})
     
+    # Clear cache
+    cache.clear()
+    
     updated_company = await db.companies.find_one({"id": company_id})
     return updated_company
 
@@ -389,13 +439,17 @@ async def delete_company(company_id: str, current_user: dict = Depends(get_curre
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Company not found")
     
+    # Clear cache
+    cache.clear()
+    
     return {"message": "Company deleted successfully"}
 
 # === USER ROUTES ===
 
 @api_router.get("/users", response_model=List[UserResponse])
+@cached(duration=300)  # 5 minut cache
 async def get_users(current_user: dict = Depends(get_current_user)):
-    """Get users (owner: all users, admin: users from their company)"""
+    """Get users (owner: all users, admin: users from their company) z cache"""
     if current_user["type"] == "owner":
         users = await db.users.find().to_list(1000)
     elif current_user["type"] == "admin":
@@ -465,6 +519,9 @@ async def create_user(user: UserCreate, current_user: dict = Depends(get_current
     
     await db.users.insert_one(user_obj.dict())
     
+    # Clear cache
+    cache.clear()
+    
     return UserResponse(
         id=user_obj.id,
         username=user_obj.username,
@@ -515,6 +572,9 @@ async def update_user(user_id: str, user: UserUpdate, current_user: dict = Depen
     if update_data:
         await db.users.update_one({"id": user_id}, {"$set": update_data})
     
+    # Clear cache
+    cache.clear()
+    
     updated_user = await db.users.find_one({"id": user_id})
     return UserResponse(
         id=updated_user["id"],
@@ -554,13 +614,17 @@ async def delete_user(user_id: str, current_user: dict = Depends(get_current_use
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
     
+    # Clear cache
+    cache.clear()
+    
     return {"message": "User deleted successfully"}
 
 # === EMPLOYEE ROUTES ===
 
 @api_router.get("/employees", response_model=List[Employee])
+@cached(duration=300)  # 5 minut cache
 async def get_employees(current_user: dict = Depends(get_current_user)):
-    """Get employees (admin/user for their company, owner for all)"""
+    """Get employees (admin/user for their company, owner for all) z cache"""
     if current_user["type"] == "owner":
         employees = await db.employees.find().to_list(1000)
     else:
@@ -584,6 +648,10 @@ async def create_employee(employee: EmployeeCreate, current_user: dict = Depends
     )
     
     await db.employees.insert_one(employee_obj.dict())
+    
+    # Clear cache
+    cache.clear()
+    
     return employee_obj
 
 @api_router.put("/employees/{employee_id}", response_model=Employee)
@@ -600,6 +668,9 @@ async def update_employee(employee_id: str, employee: EmployeeUpdate, current_us
     if update_data:
         await db.employees.update_one({"id": employee_id}, {"$set": update_data})
     
+    # Clear cache
+    cache.clear()
+    
     updated_employee = await db.employees.find_one({"id": employee_id})
     return updated_employee
 
@@ -612,6 +683,9 @@ async def delete_employee(employee_id: str, current_user: dict = Depends(get_cur
     result = await db.employees.delete_one({"id": employee_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Employee not found")
+    
+    # Clear cache
+    cache.clear()
     
     return {"message": "Employee deleted successfully"}
 
@@ -713,8 +787,9 @@ async def download_employee_qr_pdf(employee_id: str, current_user: dict = Depend
 # === TIME ENTRY ROUTES ===
 
 @api_router.get("/time-entries", response_model=List[TimeEntry])
+@cached(duration=180)  # 3 minuty cache (krótszy bo dane się zmieniają)
 async def get_time_entries(current_user: dict = Depends(get_current_user)):
-    """Get time entries (admin/user for their company, owner for all)"""
+    """Get time entries (admin/user for their company, owner for all) z cache"""
     if current_user["type"] == "owner":
         time_entries = await db.time_entries.find().to_list(1000)
     else:
@@ -755,6 +830,10 @@ async def create_time_entry(time_entry: TimeEntryCreate, current_user: dict = De
     )
     
     await db.time_entries.insert_one(time_entry_obj.dict())
+    
+    # Clear cache
+    cache.clear()
+    
     return time_entry_obj
 
 @api_router.put("/time-entries/{entry_id}", response_model=TimeEntry)
@@ -781,6 +860,9 @@ async def update_time_entry(entry_id: str, time_entry: TimeEntryUpdate, current_
     if update_data:
         await db.time_entries.update_one({"id": entry_id}, {"$set": update_data})
     
+    # Clear cache
+    cache.clear()
+    
     updated_entry = await db.time_entries.find_one({"id": entry_id})
     return updated_entry
 
@@ -793,6 +875,9 @@ async def delete_time_entry(entry_id: str, current_user: dict = Depends(get_curr
     result = await db.time_entries.delete_one({"id": entry_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Time entry not found")
+    
+    # Clear cache
+    cache.clear()
     
     return {"message": "Time entry deleted successfully"}
 
@@ -822,8 +907,9 @@ class EmployeeDayDetail(BaseModel):
     total_hours: Optional[float] = None
 
 @api_router.get("/employee-summary", response_model=List[EmployeeSummary])
+@cached(duration=300)  # 5 minut cache
 async def get_employee_summary(month: Optional[str] = None, year: Optional[int] = None, current_user: dict = Depends(get_current_user)):
-    """Get employee summary for current month or specified month/year (admin only)"""
+    """Get employee summary for current month or specified month/year (admin only) z cache"""
     if current_user["type"] not in ["owner", "admin"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
@@ -873,8 +959,9 @@ async def get_employee_summary(month: Optional[str] = None, year: Optional[int] 
     return employee_summaries
 
 @api_router.get("/employee-months/{employee_id}", response_model=List[EmployeeMonthSummary])
+@cached(duration=600)  # 10 minut cache
 async def get_employee_months(employee_id: str, current_user: dict = Depends(get_current_user)):
-    """Get all months with work data for a specific employee (admin only)"""
+    """Get all months with work data for a specific employee (admin only) z cache"""
     if current_user["type"] not in ["owner", "admin"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
@@ -925,8 +1012,9 @@ async def get_employee_months(employee_id: str, current_user: dict = Depends(get
     return month_summaries
 
 @api_router.get("/employee-days/{employee_id}/{year_month}", response_model=List[EmployeeDayDetail])
+@cached(duration=600)  # 10 minut cache
 async def get_employee_days(employee_id: str, year_month: str, current_user: dict = Depends(get_current_user)):
-    """Get daily work details for a specific employee and month (admin only)"""
+    """Get daily work details for a specific employee and month (admin only) z cache"""
     if current_user["type"] not in ["owner", "admin"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
@@ -1058,6 +1146,9 @@ async def process_qr_scan(request: QRScanRequest, current_user: dict = Depends(g
                 }}
             )
         
+        # Clear cache po skanowaniu
+        cache.clear()
+        
         return QRScanResponse(
             success=True,
             action=action,
@@ -1118,11 +1209,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Clear cache periodically
+async def clear_cache_periodically():
+    while True:
+        await asyncio.sleep(3600)  # Co godzinę
+        cache.clear()
+        logger.info("Cache cleared")
+
 @app.on_event("startup")
 async def startup_event():
     await init_default_data()
-    logger.info("Application started and default data initialized")
+    asyncio.create_task(clear_cache_periodically())
+    logger.info("Application started, default data initialized, and cache cleaner scheduled")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+    logger.info("Database connection closed")
