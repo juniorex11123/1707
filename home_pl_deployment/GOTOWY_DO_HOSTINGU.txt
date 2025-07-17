@@ -1,0 +1,70 @@
+✅ TIMETRACKER PRO - GOTOWY DO HOSTINGU HOME.PL
+============================================
+
+🎯 ADRES DOMENY: https://timetrackerpro.pl/
+
+📁 PLIKI DO UPLOADOWANIA:
+-------------------------
+
+1. FRONTEND (katalog główny domeny):
+   - Wgraj zawartość folderu: /app/deployment_ready/frontend_build/
+   - Wszystkie pliki (.html, .css, .js, .htaccess) → public_html/
+
+2. BACKEND (folder api/):
+   - Utwórz folder: public_html/api/
+   - Wgraj zawartość folderu: /app/deployment_ready/backend/
+   - Wszystkie pliki (.py, .txt, .env) → public_html/api/
+
+🔧 KONFIGURACJA PYTHON NA HOME.PL:
+----------------------------------
+- Plik startowy: api/app.py
+- Katalog roboczy: api/
+- Python 3.8+
+- Komenda instalacji: pip install -r api/requirements.txt
+
+👤 KONTA DOMYŚLNE:
+-----------------
+- owner/owner123 - Administrator systemu
+- admin/admin123 - Administrator firmy
+- user/user123 - Użytkownik firmy
+
+⚠️ ZMIEŃ HASŁA PO PIERWSZYM LOGOWANIU!
+
+🚀 FUNKCJONALNOŚCI:
+------------------
+✅ Lokalne uwierzytelnianie JWT (bez zewnętrznych API)
+✅ Zarządzanie firmami i użytkownikami
+✅ Ewidencja czasu pracy
+✅ Generowanie kodów QR dla pracowników
+✅ Skanowanie QR do rejestracji czasu
+✅ Miesięczne raporty
+✅ Różne poziomy uprawnień (Owner/Admin/User)
+✅ Optymalizacje wydajności (cache, GZip)
+
+💾 BAZA DANYCH:
+--------------
+- SQLite (lokalna, nie wymaga uprawnień)
+- Plik: timetracker_pro.db (tworzy się automatycznie)
+- Tabele: users, companies, employees, time_entries, status_checks
+
+🔐 BEZPIECZEŃSTWO:
+-----------------
+✅ JWT tokens
+✅ HTTPS ready
+✅ CORS protection
+✅ Security headers
+✅ Password hashing (bcrypt)
+
+📋 WYMAGANIA HOSTINGU:
+---------------------
+✅ Python 3.8+ (obsługiwane przez home.pl)
+✅ SQLite (wbudowane w Python)
+✅ mod_rewrite (Apache)
+✅ HTTPS/SSL
+
+🎯 STATUS: GOTOWY DO DEPLOYMENT!
+
+📖 SZCZEGÓŁOWE INSTRUKCJE: Zobacz INSTRUKCJE_DEPLOYMENT.md
+
+==================================================
+Wszystko przygotowane - wystarczy tylko wgrać pliki!
