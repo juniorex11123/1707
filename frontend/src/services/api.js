@@ -212,25 +212,25 @@ export const timeEntriesAPI = {
     const cached = getCachedData(cacheKey);
     if (cached) return cached;
 
-    const response = await api.get('/time_entries.py3');
+    const response = await api.get('/time-entries');
     setCachedData(cacheKey, response.data);
     return response.data;
   },
   
   create: async (timeEntry) => {
-    const response = await api.post('/time_entries.py3', timeEntry);
+    const response = await api.post('/time-entries', timeEntry);
     apiCache.delete('time_entries_all');
     return response.data;
   },
   
   update: async (id, timeEntry) => {
-    const response = await api.put(`/time_entries.py3?id=${id}`, timeEntry);
+    const response = await api.put(`/time-entries/${id}`, timeEntry);
     apiCache.delete('time_entries_all');
     return response.data;
   },
   
   delete: async (id) => {
-    const response = await api.delete(`/time_entries.py3?id=${id}`);
+    const response = await api.delete(`/time-entries/${id}`);
     apiCache.delete('time_entries_all');
     return response.data;
   },
