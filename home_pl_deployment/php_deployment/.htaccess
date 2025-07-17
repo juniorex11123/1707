@@ -1,17 +1,17 @@
 Options -MultiViews
 RewriteEngine On
 
-# Redirect .py3 to .php for API endpoints
-RewriteRule ^init\.py3$ /init.php [L,QSA]
-RewriteRule ^login\.py3$ /login.php [L,QSA]
-RewriteRule ^employees\.py3$ /employees.php [L,QSA]
-RewriteRule ^companies\.py3$ /companies.php [L,QSA]
-RewriteRule ^users\.py3$ /users.php [L,QSA]
-RewriteRule ^time_entries\.py3$ /time_entries.php [L,QSA]
-RewriteRule ^qr_scan\.py3$ /qr_scan.php [L,QSA]
-RewriteRule ^qr_generate\.py3$ /qr_generate.php [L,QSA]
+# Redirect .py3 to .php for API endpoints (BEFORE React Router)
+RewriteRule ^init\.py3$ init.php [L,QSA]
+RewriteRule ^login\.py3$ login.php [L,QSA]
+RewriteRule ^employees\.py3$ employees.php [L,QSA]
+RewriteRule ^companies\.py3$ companies.php [L,QSA]
+RewriteRule ^users\.py3$ users.php [L,QSA]
+RewriteRule ^time_entries\.py3$ time_entries.php [L,QSA]
+RewriteRule ^qr_scan\.py3$ qr_scan.php [L,QSA]
+RewriteRule ^qr_generate\.py3$ qr_generate.php [L,QSA]
 
-# Handle React Router
+# Handle React Router (AFTER API redirects)
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^(.*)$ /index.html [QSA,L]
