@@ -22,20 +22,16 @@ function LoginPage({ onLogin }) {
       }
     } catch (error) {
       console.error('Login error:', error);
-      if (error.response?.status === 401) {
-        setError('Błędne dane logowania');
-      } else if (error.response?.status === 422) {
-        setError('Błędne dane logowania');
-      } else if (error.code === 'NETWORK_ERROR' || error.message.includes('Network Error')) {
-        setError('Błąd połączenia z serwerem');
-      } else if (error.response?.data?.detail) {
-        setError(error.response.data.detail);
-      } else {
-        setError('Błąd podczas logowania. Spróbuj ponownie.');
-      }
+      setError('Błędne dane logowania');
     }
 
     setLoading(false);
+  };
+
+  // Szybkie logowanie dla developerów
+  const quickLogin = (user, pass) => {
+    setUsername(user);
+    setPassword(pass);
   };
 
   return (
@@ -61,6 +57,32 @@ function LoginPage({ onLogin }) {
             System Ewidencji
           </h1>
           <p className="text-gray-600">Czasu Pracy</p>
+          <p className="text-xs text-gray-500 mt-2">Logowanie lokalne (bez API)</p>
+        </div>
+
+        {/* Szybkie przyciski logowania */}
+        <div className="mb-6 grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            onClick={() => quickLogin('owner', 'owner123')}
+            className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200 transition-colors"
+          >
+            Owner
+          </button>
+          <button
+            type="button"
+            onClick={() => quickLogin('admin', 'admin123')}
+            className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200 transition-colors"
+          >
+            Admin
+          </button>
+          <button
+            type="button"
+            onClick={() => quickLogin('user', 'user123')}
+            className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200 transition-colors"
+          >
+            User
+          </button>
         </div>
 
         {error && (
@@ -106,6 +128,14 @@ function LoginPage({ onLogin }) {
             {loading ? 'Logowanie...' : 'Zaloguj się'}
           </button>
         </form>
+
+        {/* Informacja o kontach */}
+        <div className="mt-6 text-xs text-gray-500">
+          <p><strong>Dostępne konta:</strong></p>
+          <p>owner/owner123 - Administrator systemu</p>
+          <p>admin/admin123 - Administrator firmy</p>
+          <p>user/user123 - Użytkownik firmy</p>
+        </div>
       </div>
     </div>
   );
