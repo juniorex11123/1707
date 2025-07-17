@@ -276,7 +276,7 @@ export const employeeSummaryAPI = {
 // QR Scan API
 export const qrScanAPI = {
   processScan: async (qrCode, userId) => {
-    const response = await api.post('/qr-scan', { qr_code: qrCode, user_id: userId });
+    const response = await api.post('/api/qr-scan', { qr_code: qrCode, user_id: userId });
     // Wyczyść cache po skanowaniu QR
     apiCache.delete('time_entries_all');
     return response.data;
