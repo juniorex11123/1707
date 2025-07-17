@@ -1,0 +1,105 @@
+✅ TIMETRACKER PRO - GOTOWY DO HOSTINGU HOME.PL (CGI)
+=========================================================
+
+🎯 ADRES DOMENY: https://timetrackerpro.pl/
+
+🔧 ARCHITEKTURA: Python CGI + SQLite (bez uprawnień)
+
+📁 PLIKI DO UPLOADOWANIA:
+-------------------------
+
+1. FRONTEND + BACKEND (katalog główny domeny - public_html/):
+   
+   Z folderu frontend_build/:
+   - index.html
+   - static/ (folder z CSS, JS, obrazami)
+   - .htaccess
+   
+   Z folderu backend_cgi/:
+   - init.py3 (inicjalizacja bazy danych)
+   - login.py3 (logowanie)
+   - employees.py3 (pracownicy)
+   - companies.py3 (firmy)
+   - users.py3 (użytkownicy)
+   - time_entries.py3 (ewidencja czasu)
+   - qr_scan.py3 (skanowanie QR)
+   - qr_generate.py3 (generowanie QR)
+   - database.py3 (obsługa SQLite)
+   - auth.py3 (uwierzytelnianie)
+   - utils.py3 (funkcje pomocnicze)
+
+🚀 DEPLOYMENT KROK PO KROKU:
+----------------------------
+
+1. UPLOAD WSZYSTKICH PLIKÓW do public_html/
+2. Uruchom: https://timetrackerpro.pl/init.py3
+3. Test: https://timetrackerpro.pl/
+4. Zaloguj się: owner/owner123
+
+🔍 ENDPOINTY API:
+-----------------
+- Logowanie: /login.py3
+- Pracownicy: /employees.py3
+- Skanowanie QR: /qr_scan.py3
+- Generowanie QR: /qr_generate.py3
+- Firmy: /companies.py3
+- Użytkownicy: /users.py3
+- Ewidencja czasu: /time_entries.py3
+
+👤 KONTA DOMYŚLNE:
+-----------------
+- owner/owner123 - Administrator systemu
+- admin/admin123 - Administrator firmy
+- user/user123 - Użytkownik firmy
+
+⚠️ ZMIEŃ HASŁA PO PIERWSZYM LOGOWANIU!
+
+🔧 WYMAGANIA HOSTINGU:
+---------------------
+✅ Python 3.6 (obsługiwane przez home.pl)
+✅ SQLite (wbudowane w Python)
+✅ Rozszerzenia .py3 (obsługiwane przez home.pl)
+✅ mod_rewrite (Apache)
+✅ HTTPS/SSL
+
+💾 BAZA DANYCH:
+--------------
+- SQLite (tworzy się automatycznie)
+- Plik: timetracker_pro.db
+- Lokalna - nie wymaga uprawnień
+
+🔐 BEZPIECZEŃSTWO:
+-----------------
+✅ JWT tokens (24h)
+✅ HTTPS ready
+✅ CORS protection
+✅ Bcrypt hashing
+✅ Security headers
+
+🎯 FUNKCJONALNOŚCI:
+------------------
+✅ Lokalne uwierzytelnianie (bez zewnętrznych API)
+✅ Zarządzanie firmami i użytkownikami
+✅ Ewidencja czasu pracy
+✅ Generowanie i skanowanie QR kodów
+✅ Różne poziomy uprawnień
+✅ Responsywny design
+
+📊 ROZMIAR PAKIETU: 2.5MB
+🚀 STATUS: GOTOWY DO DEPLOYMENT!
+
+🔄 PIERWSZA INICJALIZACJA:
+--------------------------
+1. Wgraj pliki na hosting
+2. Otwórz: https://timetrackerpro.pl/init.py3
+3. Jeśli widzisz "Database initialized successfully" - gotowe!
+4. Otwórz: https://timetrackerpro.pl/
+5. Kliknij "Zaloguj do panelu"
+6. Użyj: owner/owner123
+
+📖 SZCZEGÓŁOWE INSTRUKCJE: 
+Zobacz INSTRUKCJE_DEPLOYMENT_CGI.md
+
+==================================================
+WYSTARCZY WGRAĆ PLIKI - WSZYSTKO JEST GOTOWE! 🎉
+==================================================
