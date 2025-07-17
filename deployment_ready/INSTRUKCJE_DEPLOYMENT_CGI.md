@@ -62,8 +62,22 @@ public_html/
 ├── qr_generate.py3
 ├── database.py3
 ├── auth.py3
-└── utils.py3
+├── utils.py3
+└── ... (pozostałe pliki)
 ```
+
+**WAŻNE: Utwórz linki symboliczne dla importów:**
+```bash
+# Na serwerze, w katalogu public_html/ wykonaj:
+ln -s utils.py3 utils.py
+ln -s database.py3 database.py
+ln -s auth.py3 auth.py
+```
+
+**Lub dodaj te pliki podczas uploadu:**
+- utils.py (kopia utils.py3)
+- database.py (kopia database.py3)
+- auth.py (kopia auth.py3)
 
 **Finalna struktura na serwerze:**
 ```
