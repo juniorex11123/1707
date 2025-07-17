@@ -11,7 +11,12 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 
 class TimeTrackerAPITester:
-    def __init__(self, base_url: str = "http://localhost:8001/api"):
+    def __init__(self, base_url: str = None):
+        if base_url is None:
+            # Try to get public URL from environment
+            import os
+            public_url = os.environ.get('base_url', 'http://localhost:8001')
+            base_url = f"{public_url}/api"
         self.base_url = base_url
         self.tokens = {}  # Store tokens for different users
         self.test_data = {}  # Store created test data
