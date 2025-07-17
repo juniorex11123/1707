@@ -44,7 +44,7 @@ api.interceptors.response.use(
 export const authAPI = {
   login: async (username, password) => {
     try {
-      const response = await api.post('/auth/login', { username, password });
+      const response = await api.post('/api/auth/login', { username, password });
       return response.data;
     } catch (error) {
       // Re-throw error for proper handling in LoginPage
