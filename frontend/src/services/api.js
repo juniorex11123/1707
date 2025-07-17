@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { localAuthAPI } from './localAuth';
 
 // Get backend URL from environment
 const API_BASE_URL = process.env.REACT_APP_BACKEND_URL || 'http://localhost:8001';
@@ -34,20 +33,20 @@ api.interceptors.response.use(
     // Only redirect to login if we're not already on the login page
     if (error.response?.status === 401 && !window.location.pathname.includes('/panel')) {
       // Token expired or invalid
-      localAuthAPI.logout();
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
       window.location.href = '/panel';
     }
     return Promise.reject(error);
   }
 );
 
-// Auth API - TERAZ UŻYWA LOKALNEGO UWIERZYTELNIANIA
+// Auth API - UŻYJ PRAWDZIWEGO BACKEND API
 export const authAPI = {
   login: async (username, password) => {
     try {
-      // Użyj lokalnego uwierzytelniania zamiast API
-      const response = await localAuthAPI.login(username, password);
-      return response;
+      const response = await api.post('/auth/login', { username, password });
+      return response.data;
     } catch (error) {
       // Re-throw error for proper handling in LoginPage
       throw error;
