@@ -23,7 +23,7 @@ def output_json(data: Any, status_code: int = 200):
     
     print(f"Status: {status_messages.get(status_code, '200 OK')}")
     print("Content-Type: application/json")
-    print("Access-Control-Allow-Origin: https://timetrackerpro.pl")
+    print("Access-Control-Allow-Origin: *")
     print("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS")
     print("Access-Control-Allow-Headers: Content-Type, Authorization")
     print("Access-Control-Allow-Credentials: true")
@@ -73,7 +73,7 @@ def handle_cors_preflight():
     """Handle CORS preflight requests"""
     if get_request_method() == 'OPTIONS':
         print("Status: 200 OK")
-        print("Access-Control-Allow-Origin: https://timetrackerpro.pl")
+        print("Access-Control-Allow-Origin: *")
         print("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS")
         print("Access-Control-Allow-Headers: Content-Type, Authorization")
         print("Access-Control-Allow-Credentials: true")
