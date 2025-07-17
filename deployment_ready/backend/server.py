@@ -3,7 +3,6 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
@@ -22,14 +21,15 @@ from reportlab.lib.utils import ImageReader
 from fastapi.responses import Response
 import asyncio
 from functools import lru_cache
+from database import Database
+import json
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection z poolem połączeń
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url, maxPoolSize=20, minPoolSize=5)
-db = client[os.environ['DB_NAME']]
+# SQLite Database connection
+db_path = os.environ.get('DB_PATH', './timetracker_pro.db')
+db = Database(db_path)
 
 # JWT Configuration
 JWT_SECRET = os.environ.get('JWT_SECRET', 'your-secret-key-here')
@@ -47,34 +47,34 @@ app = FastAPI(
     redoc_url="/api/redoc"
 )
 
-# Dodaj GZip middleware dla kompresji
+# Add GZip middleware for compression
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
 # === CACHE SYSTEM === 
-# Cache w pamięci dla częstych zapytań
+# Simple cache for frequently accessed data
 from functools import wraps
 import time
 
 cache = {}
-CACHE_DURATION = 300  # 5 minut
+CACHE_DURATION = 300  # 5 minutes
 
 def cached(duration=CACHE_DURATION):
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # Tworzenie klucza cache
+            # Create cache key
             cache_key = f"{func.__name__}:{str(args)}:{str(kwargs)}"
             
-            # Sprawdź czy dane są w cache
+            # Check if data is in cache
             if cache_key in cache:
                 data, timestamp = cache[cache_key]
                 if time.time() - timestamp < duration:
                     return data
             
-            # Wykonaj funkcję i zapisz w cache
+            # Execute function and save to cache
             result = await func(*args, **kwargs)
             cache[cache_key] = (result, time.time())
             return result
@@ -196,7 +196,7 @@ class QRScanResponse(BaseModel):
 
 @lru_cache(maxsize=128)
 def hash_password(password: str) -> str:
-    """Hash a password z cache"""
+    """Hash a password with cache"""
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def verify_password(password: str, password_hash: str) -> bool:
@@ -221,14 +221,14 @@ def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) 
     except jwt.JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-@cached(duration=1800)  # 30 minut cache
+@cached(duration=1800)  # 30 minutes cache
 async def get_current_user(token_payload: dict = Depends(verify_token)) -> dict:
-    """Get current user from token z cache"""
+    """Get current user from token with cache"""
     user_id = token_payload.get("user_id")
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token")
     
-    user = await db.users.find_one({"id": user_id})
+    user = await db.find_one("users", {"id": user_id})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     
@@ -236,7 +236,7 @@ async def get_current_user(token_payload: dict = Depends(verify_token)) -> dict:
 
 @lru_cache(maxsize=64)
 def generate_qr_code(data: str) -> str:
-    """Generate QR code and return base64 encoded image z cache"""
+    """Generate QR code and return base64 encoded image with cache"""
     qr = qrcode.QRCode(version=1, box_size=10, border=5)
     qr.add_data(data)
     qr.make(fit=True)
@@ -247,12 +247,18 @@ def generate_qr_code(data: str) -> str:
     img_str = base64.b64encode(buf.getvalue()).decode()
     return img_str
 
+def parse_datetime(datetime_str: str) -> datetime:
+    """Parse datetime string to datetime object"""
+    if isinstance(datetime_str, str):
+        return datetime.fromisoformat(datetime_str.replace('Z', '+00:00'))
+    return datetime_str
+
 # === INITIALIZATION ===
 
 async def init_default_data():
     """Initialize default data if not exists"""
     # Check if owner exists
-    owner = await db.users.find_one({"username": "owner"})
+    owner = await db.find_one("users", {"username": "owner"})
     if not owner:
         # Create default users
         default_users = [
@@ -287,7 +293,7 @@ async def init_default_data():
                 "created_at": datetime.utcnow()
             }
         ]
-        await db.users.insert_many(default_users)
+        await db.insert_many("users", default_users)
         
         # Create default companies
         default_companies = [
@@ -302,7 +308,7 @@ async def init_default_data():
                 "created_at": datetime.utcnow()
             }
         ]
-        await db.companies.insert_many(default_companies)
+        await db.insert_many("companies", default_companies)
         
         # Create default employees
         default_employees = [
@@ -323,7 +329,7 @@ async def init_default_data():
                 "created_at": datetime.utcnow()
             }
         ]
-        await db.employees.insert_many(default_employees)
+        await db.insert_many("employees", default_employees)
         
         # Create default time entries
         default_time_entries = [
@@ -346,14 +352,14 @@ async def init_default_data():
                 "created_at": datetime.utcnow()
             }
         ]
-        await db.time_entries.insert_many(default_time_entries)
+        await db.insert_many("time_entries", default_time_entries)
 
 # === AUTHENTICATION ROUTES ===
 
 @api_router.post("/auth/login", response_model=LoginResponse)
 async def login(request: LoginRequest):
-    """User login - zoptymalizowany"""
-    user = await db.users.find_one({"username": request.username})
+    """User login - optimized"""
+    user = await db.find_one("users", {"username": request.username})
     if not user or not verify_password(request.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
@@ -363,9 +369,12 @@ async def login(request: LoginRequest):
     # Get company name if user belongs to a company
     company_name = user.get("company_name")
     if user.get("company_id"):
-        company = await db.companies.find_one({"id": user["company_id"]})
+        company = await db.find_one("companies", {"id": user["company_id"]})
         if company:
             company_name = company["name"]
+    
+    # Parse datetime
+    created_at = parse_datetime(user["created_at"]) if isinstance(user["created_at"], str) else user["created_at"]
     
     user_response = UserResponse(
         id=user["id"],
@@ -374,7 +383,7 @@ async def login(request: LoginRequest):
         role=user["role"],
         company_id=user.get("company_id"),
         company_name=company_name,
-        created_at=user["created_at"]
+        created_at=created_at
     )
     
     return LoginResponse(
@@ -386,13 +395,18 @@ async def login(request: LoginRequest):
 # === COMPANY ROUTES ===
 
 @api_router.get("/companies", response_model=List[Company])
-@cached(duration=300)  # 5 minut cache
+@cached(duration=300)  # 5 minutes cache
 async def get_companies(current_user: dict = Depends(get_current_user)):
-    """Get all companies (owner only) z cache"""
+    """Get all companies (owner only) with cache"""
     if current_user["type"] != "owner":
         raise HTTPException(status_code=403, detail="Access denied")
     
-    companies = await db.companies.find().to_list(1000)
+    companies = await db.find_many("companies")
+    
+    # Parse datetime fields
+    for company in companies:
+        company["created_at"] = parse_datetime(company["created_at"])
+    
     return companies
 
 @api_router.post("/companies", response_model=Company)
@@ -402,7 +416,7 @@ async def create_company(company: CompanyCreate, current_user: dict = Depends(ge
         raise HTTPException(status_code=403, detail="Access denied")
     
     company_obj = Company(**company.dict())
-    await db.companies.insert_one(company_obj.dict())
+    await db.insert_one("companies", company_obj.dict())
     
     # Clear cache
     cache.clear()
@@ -415,18 +429,19 @@ async def update_company(company_id: str, company: CompanyUpdate, current_user: 
     if current_user["type"] != "owner":
         raise HTTPException(status_code=403, detail="Access denied")
     
-    existing_company = await db.companies.find_one({"id": company_id})
+    existing_company = await db.find_one("companies", {"id": company_id})
     if not existing_company:
         raise HTTPException(status_code=404, detail="Company not found")
     
     update_data = {k: v for k, v in company.dict().items() if v is not None}
     if update_data:
-        await db.companies.update_one({"id": company_id}, {"$set": update_data})
+        await db.update_one("companies", {"id": company_id}, update_data)
     
     # Clear cache
     cache.clear()
     
-    updated_company = await db.companies.find_one({"id": company_id})
+    updated_company = await db.find_one("companies", {"id": company_id})
+    updated_company["created_at"] = parse_datetime(updated_company["created_at"])
     return updated_company
 
 @api_router.delete("/companies/{company_id}")
@@ -435,8 +450,8 @@ async def delete_company(company_id: str, current_user: dict = Depends(get_curre
     if current_user["type"] != "owner":
         raise HTTPException(status_code=403, detail="Access denied")
     
-    result = await db.companies.delete_one({"id": company_id})
-    if result.deleted_count == 0:
+    deleted = await db.delete_one("companies", {"id": company_id})
+    if not deleted:
         raise HTTPException(status_code=404, detail="Company not found")
     
     # Clear cache
@@ -444,17 +459,17 @@ async def delete_company(company_id: str, current_user: dict = Depends(get_curre
     
     return {"message": "Company deleted successfully"}
 
-# === USER ROUTES ===
+# === AUTHENTICATION ROUTES ===
 
 @api_router.get("/users", response_model=List[UserResponse])
-@cached(duration=300)  # 5 minut cache
+@cached(duration=300)  # 5 minutes cache
 async def get_users(current_user: dict = Depends(get_current_user)):
-    """Get users (owner: all users, admin: users from their company) z cache"""
+    """Get users (owner: all users, admin: users from their company) with cache"""
     if current_user["type"] == "owner":
-        users = await db.users.find().to_list(1000)
+        users = await db.find_many("users")
     elif current_user["type"] == "admin":
         # Admin can only see users from their company
-        users = await db.users.find({"company_id": current_user["company_id"]}).to_list(1000)
+        users = await db.find_many("users", {"company_id": current_user["company_id"]})
     else:
         raise HTTPException(status_code=403, detail="Access denied")
     
@@ -462,9 +477,11 @@ async def get_users(current_user: dict = Depends(get_current_user)):
     for user in users:
         company_name = user.get("company_name")
         if user.get("company_id"):
-            company = await db.companies.find_one({"id": user["company_id"]})
+            company = await db.find_one("companies", {"id": user["company_id"]})
             if company:
                 company_name = company["name"]
+        
+        created_at = parse_datetime(user["created_at"]) if isinstance(user["created_at"], str) else user["created_at"]
         
         user_responses.append(UserResponse(
             id=user["id"],
@@ -473,7 +490,7 @@ async def get_users(current_user: dict = Depends(get_current_user)):
             role=user["role"],
             company_id=user.get("company_id"),
             company_name=company_name,
-            created_at=user["created_at"]
+            created_at=created_at
         ))
     
     return user_responses
@@ -497,14 +514,14 @@ async def create_user(user: UserCreate, current_user: dict = Depends(get_current
         raise HTTPException(status_code=403, detail="Access denied")
     
     # Check if username already exists
-    existing_user = await db.users.find_one({"username": user.username})
+    existing_user = await db.find_one("users", {"username": user.username})
     if existing_user:
         raise HTTPException(status_code=400, detail="Username already exists")
     
     # Get company name if provided
     company_name = None
     if user.company_id:
-        company = await db.companies.find_one({"id": user.company_id})
+        company = await db.find_one("companies", {"id": user.company_id})
         if company:
             company_name = company["name"]
     
@@ -517,7 +534,7 @@ async def create_user(user: UserCreate, current_user: dict = Depends(get_current
         company_name=company_name
     )
     
-    await db.users.insert_one(user_obj.dict())
+    await db.insert_one("users", user_obj.dict())
     
     # Clear cache
     cache.clear()
@@ -532,103 +549,20 @@ async def create_user(user: UserCreate, current_user: dict = Depends(get_current
         created_at=user_obj.created_at
     )
 
-@api_router.put("/users/{user_id}", response_model=UserResponse)
-async def update_user(user_id: str, user: UserUpdate, current_user: dict = Depends(get_current_user)):
-    """Update user (owner: any user, admin: users from their company only)"""
-    existing_user = await db.users.find_one({"id": user_id})
-    if not existing_user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    if current_user["type"] == "owner":
-        # Owner can update any user
-        pass
-    elif current_user["type"] == "admin":
-        # Admin can only update users from their company
-        if existing_user.get("company_id") != current_user["company_id"]:
-            raise HTTPException(status_code=403, detail="Cannot update users from other companies")
-        # Admin cannot change user type to owner
-        if user.type == "owner":
-            raise HTTPException(status_code=403, detail="Cannot create owner accounts")
-        # Admin cannot update owner accounts
-        if existing_user.get("type") == "owner":
-            raise HTTPException(status_code=403, detail="Cannot update owner accounts")
-    else:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    update_data = {k: v for k, v in user.dict().items() if v is not None}
-    if "password" in update_data:
-        update_data["password_hash"] = hash_password(update_data.pop("password"))
-    if "type" in update_data:
-        update_data["role"] = update_data["type"]
-    
-    # Get company name if company_id is being updated
-    if "company_id" in update_data:
-        if current_user["type"] == "admin" and update_data["company_id"] != current_user["company_id"]:
-            raise HTTPException(status_code=403, detail="Cannot assign users to other companies")
-        company = await db.companies.find_one({"id": update_data["company_id"]})
-        if company:
-            update_data["company_name"] = company["name"]
-    
-    if update_data:
-        await db.users.update_one({"id": user_id}, {"$set": update_data})
-    
-    # Clear cache
-    cache.clear()
-    
-    updated_user = await db.users.find_one({"id": user_id})
-    return UserResponse(
-        id=updated_user["id"],
-        username=updated_user["username"],
-        type=updated_user["type"],
-        role=updated_user["role"],
-        company_id=updated_user.get("company_id"),
-        company_name=updated_user.get("company_name"),
-        created_at=updated_user["created_at"]
-    )
-
-@api_router.delete("/users/{user_id}")
-async def delete_user(user_id: str, current_user: dict = Depends(get_current_user)):
-    """Delete user (owner: any user, admin: users from their company only)"""
-    existing_user = await db.users.find_one({"id": user_id})
-    if not existing_user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    if current_user["type"] == "owner":
-        # Owner can delete any user (except themselves)
-        if existing_user["id"] == current_user["id"]:
-            raise HTTPException(status_code=403, detail="Cannot delete yourself")
-    elif current_user["type"] == "admin":
-        # Admin can only delete users from their company
-        if existing_user.get("company_id") != current_user["company_id"]:
-            raise HTTPException(status_code=403, detail="Cannot delete users from other companies")
-        # Admin cannot delete owner accounts
-        if existing_user.get("type") == "owner":
-            raise HTTPException(status_code=403, detail="Cannot delete owner accounts")
-        # Admin cannot delete themselves
-        if existing_user["id"] == current_user["id"]:
-            raise HTTPException(status_code=403, detail="Cannot delete yourself")
-    else:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    result = await db.users.delete_one({"id": user_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    # Clear cache
-    cache.clear()
-    
-    return {"message": "User deleted successfully"}
-
 # === EMPLOYEE ROUTES ===
 
 @api_router.get("/employees", response_model=List[Employee])
-@cached(duration=300)  # 5 minut cache
+@cached(duration=300)  # 5 minutes cache
 async def get_employees(current_user: dict = Depends(get_current_user)):
-    """Get employees (admin/user for their company, owner for all) z cache"""
+    """Get employees (admin/user for their company, owner for all) with cache"""
     if current_user["type"] == "owner":
-        employees = await db.employees.find().to_list(1000)
+        employees = await db.find_many("employees")
     else:
-        employees = await db.employees.find({"company_id": current_user["company_id"]}).to_list(1000)
+        employees = await db.find_many("employees", {"company_id": current_user["company_id"]})
+    
+    # Parse datetime fields
+    for employee in employees:
+        employee["created_at"] = parse_datetime(employee["created_at"])
     
     return employees
 
@@ -647,47 +581,12 @@ async def create_employee(employee: EmployeeCreate, current_user: dict = Depends
         company_id=employee.company_id
     )
     
-    await db.employees.insert_one(employee_obj.dict())
+    await db.insert_one("employees", employee_obj.dict())
     
     # Clear cache
     cache.clear()
     
     return employee_obj
-
-@api_router.put("/employees/{employee_id}", response_model=Employee)
-async def update_employee(employee_id: str, employee: EmployeeUpdate, current_user: dict = Depends(get_current_user)):
-    """Update employee (admin only)"""
-    if current_user["type"] not in ["owner", "admin"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    existing_employee = await db.employees.find_one({"id": employee_id})
-    if not existing_employee:
-        raise HTTPException(status_code=404, detail="Employee not found")
-    
-    update_data = {k: v for k, v in employee.dict().items() if v is not None}
-    if update_data:
-        await db.employees.update_one({"id": employee_id}, {"$set": update_data})
-    
-    # Clear cache
-    cache.clear()
-    
-    updated_employee = await db.employees.find_one({"id": employee_id})
-    return updated_employee
-
-@api_router.delete("/employees/{employee_id}")
-async def delete_employee(employee_id: str, current_user: dict = Depends(get_current_user)):
-    """Delete employee (admin only)"""
-    if current_user["type"] not in ["owner", "admin"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    result = await db.employees.delete_one({"id": employee_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Employee not found")
-    
-    # Clear cache
-    cache.clear()
-    
-    return {"message": "Employee deleted successfully"}
 
 @api_router.get("/employees/{employee_id}/qr", response_model=QRResponse)
 async def generate_employee_qr(employee_id: str, current_user: dict = Depends(get_current_user)):
@@ -695,7 +594,7 @@ async def generate_employee_qr(employee_id: str, current_user: dict = Depends(ge
     if current_user["type"] not in ["owner", "admin"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
-    employee = await db.employees.find_one({"id": employee_id})
+    employee = await db.find_one("employees", {"id": employee_id})
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
     
@@ -706,376 +605,35 @@ async def generate_employee_qr(employee_id: str, current_user: dict = Depends(ge
         qr_code_image=qr_image
     )
 
-@api_router.get("/employees/{employee_id}/qr-pdf")
-async def download_employee_qr_pdf(employee_id: str, current_user: dict = Depends(get_current_user)):
-    """Download QR code PDF for employee (admin only)"""
-    if current_user["type"] not in ["owner", "admin"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    employee = await db.employees.find_one({"id": employee_id})
-    if not employee:
-        raise HTTPException(status_code=404, detail="Employee not found")
-    
-    # Generate QR code image
-    qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(employee["qr_code"])
-    qr.make(fit=True)
-    
-    qr_img = qr.make_image(fill_color="black", back_color="white")
-    
-    # Create PDF
-    buffer = io.BytesIO()
-    p = canvas.Canvas(buffer, pagesize=A4)
-    width, height = A4
-    
-    # Add title
-    p.setFont("Helvetica-Bold", 24)
-    p.drawString(50, height - 100, "Kod QR Pracownika")
-    
-    # Add employee name
-    p.setFont("Helvetica", 18)
-    p.drawString(50, height - 140, f"Imię i nazwisko: {employee['name']}")
-    
-    # Add QR code ID
-    p.setFont("Helvetica", 14)
-    p.drawString(50, height - 170, f"Kod QR: {employee['qr_code']}")
-    
-    # Add QR code image
-    img_buffer = io.BytesIO()
-    qr_img.save(img_buffer, format='PNG')
-    img_buffer.seek(0)
-    
-    # Position QR code in center
-    qr_size = 200
-    x_pos = (width - qr_size) / 2
-    y_pos = height - 400
-    
-    p.drawImage(ImageReader(img_buffer), x_pos, y_pos, width=qr_size, height=qr_size)
-    
-    # Add instructions
-    p.setFont("Helvetica", 12)
-    p.drawString(50, y_pos - 50, "Instrukcje:")
-    p.drawString(50, y_pos - 70, "1. Zeskanuj kod QR aby zarejestrować przyjście/wyjście")
-    p.drawString(50, y_pos - 90, "2. Trzymaj kod QR w dobrze oświetlonym miejscu")
-    p.drawString(50, y_pos - 110, "3. W razie problemów skontaktuj się z administratorem")
-    
-    # Add footer
-    p.setFont("Helvetica", 10)
-    p.drawString(50, 50, f"Wygenerowano: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC")
-    p.drawString(50, 30, "TimeTracker Pro - System zarządzania czasem pracy")
-    
-    p.showPage()
-    p.save()
-    
-    buffer.seek(0)
-    pdf_content = buffer.getvalue()
-    buffer.close()
-    
-    # Return PDF as response
-    filename = f"qr_code_{employee['name'].replace(' ', '_')}_{employee['qr_code']}.pdf"
-    
-    return Response(
-        content=pdf_content,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f"attachment; filename={filename}",
-            "Access-Control-Expose-Headers": "Content-Disposition",
-            "Cache-Control": "no-cache"
-        }
-    )
-
 # === TIME ENTRY ROUTES ===
 
 @api_router.get("/time-entries", response_model=List[TimeEntry])
-@cached(duration=180)  # 3 minuty cache (krótszy bo dane się zmieniają)
+@cached(duration=180)  # 3 minutes cache (shorter because data changes)
 async def get_time_entries(current_user: dict = Depends(get_current_user)):
-    """Get time entries (admin/user for their company, owner for all) z cache"""
+    """Get time entries (admin/user for their company, owner for all) with cache"""
     if current_user["type"] == "owner":
-        time_entries = await db.time_entries.find().to_list(1000)
+        time_entries = await db.find_many("time_entries")
     else:
         # Get employees from user's company first
-        employees = await db.employees.find({"company_id": current_user["company_id"]}).to_list(1000)
+        employees = await db.find_many("employees", {"company_id": current_user["company_id"]})
         employee_ids = [emp["id"] for emp in employees]
-        time_entries = await db.time_entries.find({"employee_id": {"$in": employee_ids}}).to_list(1000)
+        time_entries = await db.find_time_entries_by_employee_ids(employee_ids)
+    
+    # Parse datetime fields
+    for entry in time_entries:
+        entry["check_in"] = parse_datetime(entry["check_in"])
+        if entry["check_out"]:
+            entry["check_out"] = parse_datetime(entry["check_out"])
+        entry["created_at"] = parse_datetime(entry["created_at"])
     
     return time_entries
-
-@api_router.post("/time-entries", response_model=TimeEntry)
-async def create_time_entry(time_entry: TimeEntryCreate, current_user: dict = Depends(get_current_user)):
-    """Create new time entry (admin/owner only)"""
-    if current_user["type"] not in ["owner", "admin"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    employee = await db.employees.find_one({"id": time_entry.employee_id})
-    if not employee:
-        raise HTTPException(status_code=404, detail="Employee not found")
-    
-    # Admin can only create time entries for employees from their company
-    if current_user["type"] == "admin":
-        if employee.get("company_id") != current_user["company_id"]:
-            raise HTTPException(status_code=403, detail="Cannot create time entries for employees from other companies")
-    
-    # Calculate total hours if check_out is provided
-    total_hours = None
-    if time_entry.check_out:
-        delta = time_entry.check_out - time_entry.check_in
-        total_hours = delta.total_seconds() / 3600
-    
-    time_entry_obj = TimeEntry(
-        employee_id=time_entry.employee_id,
-        check_in=time_entry.check_in,
-        check_out=time_entry.check_out,
-        date=time_entry.check_in.strftime("%Y-%m-%d"),
-        total_hours=total_hours
-    )
-    
-    await db.time_entries.insert_one(time_entry_obj.dict())
-    
-    # Clear cache
-    cache.clear()
-    
-    return time_entry_obj
-
-@api_router.put("/time-entries/{entry_id}", response_model=TimeEntry)
-async def update_time_entry(entry_id: str, time_entry: TimeEntryUpdate, current_user: dict = Depends(get_current_user)):
-    """Update time entry (admin only)"""
-    if current_user["type"] not in ["owner", "admin"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    existing_entry = await db.time_entries.find_one({"id": entry_id})
-    if not existing_entry:
-        raise HTTPException(status_code=404, detail="Time entry not found")
-    
-    update_data = {k: v for k, v in time_entry.dict().items() if v is not None}
-    
-    # Recalculate total hours if check_in or check_out is updated
-    if "check_in" in update_data or "check_out" in update_data:
-        check_in = update_data.get("check_in", existing_entry["check_in"])
-        check_out = update_data.get("check_out", existing_entry.get("check_out"))
-        
-        if check_in and check_out:
-            delta = check_out - check_in
-            update_data["total_hours"] = delta.total_seconds() / 3600
-    
-    if update_data:
-        await db.time_entries.update_one({"id": entry_id}, {"$set": update_data})
-    
-    # Clear cache
-    cache.clear()
-    
-    updated_entry = await db.time_entries.find_one({"id": entry_id})
-    return updated_entry
-
-@api_router.delete("/time-entries/{entry_id}")
-async def delete_time_entry(entry_id: str, current_user: dict = Depends(get_current_user)):
-    """Delete time entry (admin only)"""
-    if current_user["type"] not in ["owner", "admin"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    result = await db.time_entries.delete_one({"id": entry_id})
-    if result.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Time entry not found")
-    
-    # Clear cache
-    cache.clear()
-    
-    return {"message": "Time entry deleted successfully"}
-
-# === EMPLOYEE SUMMARY ROUTES ===
-
-class EmployeeSummary(BaseModel):
-    employee_id: str
-    employee_name: str
-    total_hours: float
-    current_month: str
-    year: int
-
-class EmployeeMonthSummary(BaseModel):
-    employee_id: str
-    employee_name: str
-    month: str
-    year: int
-    total_hours: float
-    days_worked: int
-
-class EmployeeDayDetail(BaseModel):
-    employee_id: str
-    employee_name: str
-    date: str
-    check_in: str
-    check_out: Optional[str] = None
-    total_hours: Optional[float] = None
-
-@api_router.get("/employee-summary", response_model=List[EmployeeSummary])
-@cached(duration=300)  # 5 minut cache
-async def get_employee_summary(month: Optional[str] = None, year: Optional[int] = None, current_user: dict = Depends(get_current_user)):
-    """Get employee summary for current month or specified month/year (admin only) z cache"""
-    if current_user["type"] not in ["owner", "admin"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    from datetime import datetime
-    import calendar
-    
-    # If no month/year specified, use current month
-    if not month or not year:
-        now = datetime.now()
-        year = now.year
-        month = now.strftime("%m")
-    
-    # Get employees from user's company
-    if current_user["type"] == "owner":
-        employees = await db.employees.find().to_list(1000)
-    else:
-        employees = await db.employees.find({"company_id": current_user["company_id"]}).to_list(1000)
-    
-    employee_summaries = []
-    
-    for employee in employees:
-        # Get time entries for this employee for the specified month/year
-        month_start = f"{year}-{month:0>2}-01"
-        if int(month) == 12:
-            next_month = f"{year + 1}-01-01"
-        else:
-            next_month = f"{year}-{int(month) + 1:0>2}-01"
-        
-        time_entries = await db.time_entries.find({
-            "employee_id": employee["id"],
-            "date": {
-                "$gte": month_start,
-                "$lt": next_month
-            }
-        }).to_list(1000)
-        
-        total_hours = sum(entry.get("total_hours", 0) for entry in time_entries)
-        
-        employee_summaries.append(EmployeeSummary(
-            employee_id=employee["id"],
-            employee_name=employee["name"],
-            total_hours=total_hours,
-            current_month=f"{year}-{month:0>2}",
-            year=year
-        ))
-    
-    return employee_summaries
-
-@api_router.get("/employee-months/{employee_id}", response_model=List[EmployeeMonthSummary])
-@cached(duration=600)  # 10 minut cache
-async def get_employee_months(employee_id: str, current_user: dict = Depends(get_current_user)):
-    """Get all months with work data for a specific employee (admin only) z cache"""
-    if current_user["type"] not in ["owner", "admin"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    # Check if employee exists and user has access
-    employee = await db.employees.find_one({"id": employee_id})
-    if not employee:
-        raise HTTPException(status_code=404, detail="Employee not found")
-    
-    # Check access permissions
-    if current_user["type"] == "admin" and employee.get("company_id") != current_user["company_id"]:
-        raise HTTPException(status_code=403, detail="Access denied to this employee")
-    
-    # Get all time entries for this employee
-    time_entries = await db.time_entries.find({"employee_id": employee_id}).to_list(1000)
-    
-    # Group by month/year
-    monthly_data = {}
-    for entry in time_entries:
-        date_str = entry["date"]
-        year_month = date_str[:7]  # Format: YYYY-MM
-        year, month = year_month.split('-')
-        
-        if year_month not in monthly_data:
-            monthly_data[year_month] = {
-                "total_hours": 0,
-                "days_worked": set()
-            }
-        
-        monthly_data[year_month]["total_hours"] += entry.get("total_hours", 0)
-        monthly_data[year_month]["days_worked"].add(date_str)
-    
-    # Convert to response format
-    month_summaries = []
-    for year_month, data in monthly_data.items():
-        year, month = year_month.split('-')
-        month_summaries.append(EmployeeMonthSummary(
-            employee_id=employee_id,
-            employee_name=employee["name"],
-            month=year_month,
-            year=int(year),
-            total_hours=data["total_hours"],
-            days_worked=len(data["days_worked"])
-        ))
-    
-    # Sort by year and month (newest first)
-    month_summaries.sort(key=lambda x: x.month, reverse=True)
-    
-    return month_summaries
-
-@api_router.get("/employee-days/{employee_id}/{year_month}", response_model=List[EmployeeDayDetail])
-@cached(duration=600)  # 10 minut cache
-async def get_employee_days(employee_id: str, year_month: str, current_user: dict = Depends(get_current_user)):
-    """Get daily work details for a specific employee and month (admin only) z cache"""
-    if current_user["type"] not in ["owner", "admin"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    # Check if employee exists and user has access
-    employee = await db.employees.find_one({"id": employee_id})
-    if not employee:
-        raise HTTPException(status_code=404, detail="Employee not found")
-    
-    # Check access permissions
-    if current_user["type"] == "admin" and employee.get("company_id") != current_user["company_id"]:
-        raise HTTPException(status_code=403, detail="Access denied to this employee")
-    
-    # Validate year_month format (YYYY-MM)
-    try:
-        year, month = year_month.split('-')
-        year = int(year)
-        month = int(month)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid year_month format. Use YYYY-MM")
-    
-    # Get time entries for this employee and month
-    month_start = f"{year}-{month:0>2}-01"
-    if month == 12:
-        next_month = f"{year + 1}-01-01"
-    else:
-        next_month = f"{year}-{month + 1:0>2}-01"
-    
-    time_entries = await db.time_entries.find({
-        "employee_id": employee_id,
-        "date": {
-            "$gte": month_start,
-            "$lt": next_month
-        }
-    }).to_list(1000)
-    
-    # Convert to response format
-    day_details = []
-    for entry in time_entries:
-        check_in_str = entry["check_in"].strftime("%H:%M") if entry.get("check_in") else ""
-        check_out_str = entry["check_out"].strftime("%H:%M") if entry.get("check_out") else None
-        
-        day_details.append(EmployeeDayDetail(
-            employee_id=employee_id,
-            employee_name=employee["name"],
-            date=entry["date"],
-            check_in=check_in_str,
-            check_out=check_out_str,
-            total_hours=entry.get("total_hours", 0)
-        ))
-    
-    # Sort by date
-    day_details.sort(key=lambda x: x.date)
-    
-    return day_details
 
 @api_router.post("/qr-scan", response_model=QRScanResponse)
 async def process_qr_scan(request: QRScanRequest, current_user: dict = Depends(get_current_user)):
     """Process QR code scan for employee check-in/check-out"""
     try:
         # Find employee by QR code
-        employee = await db.employees.find_one({"qr_code": request.qr_code})
+        employee = await db.find_one("employees", {"qr_code": request.qr_code})
         
         if not employee:
             return QRScanResponse(
@@ -1101,10 +659,7 @@ async def process_qr_scan(request: QRScanRequest, current_user: dict = Depends(g
         today = datetime.utcnow().strftime("%Y-%m-%d")
         
         # Find the last time entry for this employee today
-        last_entry = await db.time_entries.find_one(
-            {"employee_id": employee["id"], "date": today},
-            sort=[("check_in", -1)]
-        )
+        last_entry = await db.find_last_time_entry(employee["id"], today)
         
         now = datetime.utcnow()
         
@@ -1123,7 +678,7 @@ async def process_qr_scan(request: QRScanRequest, current_user: dict = Depends(g
                 total_hours=None
             )
             
-            await db.time_entries.insert_one(time_entry.dict())
+            await db.insert_one("time_entries", time_entry.dict())
             
         else:
             # This is check-out
@@ -1131,22 +686,21 @@ async def process_qr_scan(request: QRScanRequest, current_user: dict = Depends(g
             action_text = "Zakończono pracę"
             
             # Update existing time entry
-            check_in = last_entry["check_in"]
-            if isinstance(check_in, str):
-                check_in = datetime.fromisoformat(check_in.replace('Z', '+00:00'))
+            check_in = parse_datetime(last_entry["check_in"])
             
             delta = now - check_in
             total_hours = delta.total_seconds() / 3600
             
-            await db.time_entries.update_one(
+            await db.update_one(
+                "time_entries",
                 {"id": last_entry["id"]},
-                {"$set": {
+                {
                     "check_out": now,
                     "total_hours": total_hours
-                }}
+                }
             )
         
-        # Clear cache po skanowaniu
+        # Clear cache after scan
         cache.clear()
         
         return QRScanResponse(
@@ -1175,12 +729,17 @@ async def root():
 async def create_status_check(input: StatusCheckCreate):
     status_dict = input.dict()
     status_obj = StatusCheck(**status_dict)
-    _ = await db.status_checks.insert_one(status_obj.dict())
+    await db.insert_one("status_checks", status_obj.dict())
     return status_obj
 
 @api_router.get("/status", response_model=List[StatusCheck])
 async def get_status_checks():
-    status_checks = await db.status_checks.find().to_list(1000)
+    status_checks = await db.find_many("status_checks")
+    
+    # Parse datetime fields
+    for check in status_checks:
+        check["timestamp"] = parse_datetime(check["timestamp"])
+    
     return [StatusCheck(**status_check) for status_check in status_checks]
 
 # Include the router in the main app
@@ -1189,7 +748,6 @@ app.include_router(api_router)
 # CORS Configuration
 cors_origins = os.environ.get('CORS_ORIGINS', '["*"]')
 if cors_origins.startswith('['):
-    import json
     cors_origins = json.loads(cors_origins)
 else:
     cors_origins = ["*"]
@@ -1212,17 +770,17 @@ logger = logging.getLogger(__name__)
 # Clear cache periodically
 async def clear_cache_periodically():
     while True:
-        await asyncio.sleep(3600)  # Co godzinę
+        await asyncio.sleep(3600)  # Every hour
         cache.clear()
         logger.info("Cache cleared")
 
 @app.on_event("startup")
 async def startup_event():
+    await db.init_db()
     await init_default_data()
     asyncio.create_task(clear_cache_periodically())
     logger.info("Application started, default data initialized, and cache cleaner scheduled")
 
 @app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
-    logger.info("Database connection closed")
+async def shutdown_event():
+    logger.info("Application shutting down")
