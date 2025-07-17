@@ -40,11 +40,11 @@ api.interceptors.response.use(
   }
 );
 
-// Auth API - CGI endpoints
+// Auth API - FastAPI endpoints
 export const authAPI = {
   login: async (username, password) => {
     try {
-      const response = await api.post('/login.py3', { username, password });
+      const response = await api.post('/auth/login', { username, password });
       return response.data;
     } catch (error) {
       // Re-throw error for proper handling in LoginPage
