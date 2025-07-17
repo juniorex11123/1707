@@ -1,0 +1,15 @@
+[Unit]
+Description=TimeTracker Pro Backend
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/path/to/your/app/backend
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 run_production.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
