@@ -40,7 +40,7 @@ function verify_jwt($token) {
 
 // Get auth token
 $auth_header = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
-if (!$auth_header || !str_starts_with($auth_header, 'Bearer ')) {
+if (!$auth_header || substr($auth_header, 0, 7) !== 'Bearer ') {
     http_response_code(401);
     echo json_encode(['error' => 'Authorization required']);
     exit;
